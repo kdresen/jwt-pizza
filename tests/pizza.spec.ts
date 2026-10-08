@@ -1,4 +1,51 @@
 import { test, expect } from "playwright-test-coverage";
+import type { Page } from "@playwright/test";
+
+type AuthMockOptions = {
+  method: "POST" | "PUT";
+  email: string;
+  password: string;
+  user: {
+    id: number;
+    name: string;
+    email: string;
+    roles: { role: string }[];
+  };
+  token: string;
+  allowLogout?: boolean;
+  request?: Record<string, string>;
+};
+
+async function setupCommonMocks(
+  page: Page,
+  options: AuthMockOptions,
+): Promise<void> {
+  await page.route("**/version.json", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    await route.fulfill({ json: { version: "test" } });
+  });
+
+  await page.route("*/**/api/auth", async (route) => {
+    const method = route.request().method();
+    if (options.allowLogout && method === "DELETE") {
+      await route.fulfill({ json: {} });
+      return;
+    }
+
+    expect(method).toBe(options.method);
+    expect(route.request().postDataJSON()).toMatchObject({
+      email: options.email,
+      password: options.password,
+      ...options.request,
+    });
+    await route.fulfill({
+      json: {
+        user: options.user,
+        token: options.token,
+      },
+    });
+  });
+}
 
 test("home page", async ({ page }) => {
   await page.goto("/");
@@ -7,9 +54,17 @@ test("home page", async ({ page }) => {
 });
 
 test("purchase with login", async ({ page }) => {
-  await page.route("*/**/version.json", async (route) => {
-    expect(route.request().method()).toBe("GET");
-    await route.fulfill({ json: { version: "test" } });
+  await setupCommonMocks(page, {
+    method: "PUT",
+    email: "d@jwt.com",
+    password: "diner",
+    user: {
+      id: 2,
+      name: "pizza diner",
+      email: "d@jwt.com",
+      roles: [{ role: "diner" }],
+    },
+    token: "******",
   });
 
   await page.route("*/**/api/order/menu", async (route) => {
@@ -51,27 +106,6 @@ test("purchase with login", async ({ page }) => {
         more: false,
       },
     });
-  });
-
-  await page.route("*/**/api/auth", async (route) => {
-    const loginReq = { email: "d@jwt.com", password: "diner" };
-    const loginRes = {
-      user: {
-        id: 2,
-        name: "pizza diner",
-        email: "d@jwt.com",
-        roles: [
-          {
-            role: "diner",
-          },
-        ],
-      },
-      token:
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MiwibmFtZSI6InBpenphIGRpbmVyIiwiZW1haWwiOiJkQGp3dC5jb20iLCJyb2xlcyI6W3sicm9sZSI6ImRpbmVyIn1dLCJpYXQiOjE3OTE0MTc1MDd9._zd6iVhYU9wK1AVA1OGdZJgyjc7Nd0QXoiH_8B-OrQg",
-    };
-    expect(route.request().method()).toBe("PUT");
-    expect(route.request().postDataJSON()).toMatchObject(loginReq);
-    await route.fulfill({ json: loginRes });
   });
 
   await page.route("**/api/user/me", async (route) => {
@@ -150,27 +184,17 @@ test("purchase with login", async ({ page }) => {
 });
 
 test("franchise dashboard", async ({ page }) => {
-  await page.route("**/version.json", async (route) => {
-    await route.fulfill({ json: { version: "test" } });
-  });
-
-  await page.route("*/**/api/auth", async (route) => {
-    expect(route.request().method()).toBe("PUT");
-    expect(route.request().postDataJSON()).toMatchObject({
+  await setupCommonMocks(page, {
+    method: "PUT",
+    email: "f@jwt.com",
+    password: "franchisee",
+    user: {
+      id: 2,
+      name: "pizza franchisee",
       email: "f@jwt.com",
-      password: "franchisee",
-    });
-    await route.fulfill({
-      json: {
-        user: {
-          id: 2,
-          name: "pizza franchisee",
-          email: "f@jwt.com",
-          roles: [{ role: "franchisee" }],
-        },
-        token: "mock-franchisee-token",
-      },
-    });
+      roles: [{ role: "franchisee" }],
+    },
+    token: "mock-franchisee-token",
   });
 
   await page.route("http://localhost:3000/api/franchise/2", async (route) => {
@@ -207,27 +231,17 @@ test("franchise dashboard", async ({ page }) => {
 });
 
 test("admin dashboard", async ({ page }) => {
-  await page.route("**/version.json", async (route) => {
-    await route.fulfill({ json: { version: "test" } });
-  });
-
-  await page.route("*/**/api/auth", async (route) => {
-    expect(route.request().method()).toBe("PUT");
-    expect(route.request().postDataJSON()).toMatchObject({
+  await setupCommonMocks(page, {
+    method: "PUT",
+    email: "a@jwt.com",
+    password: "admin",
+    user: {
+      id: 1,
+      name: "pizza admin",
       email: "a@jwt.com",
-      password: "admin",
-    });
-    await route.fulfill({
-      json: {
-        user: {
-          id: 1,
-          name: "pizza admin",
-          email: "a@jwt.com",
-          roles: [{ role: "admin" }],
-        },
-        token: "mock-admin-token",
-      },
-    });
+      roles: [{ role: "admin" }],
+    },
+    token: "mock-admin-token",
   });
 
   await page.route("http://localhost:3000/api/franchise**", async (route) => {
@@ -326,33 +340,25 @@ test("admin dashboard", async ({ page }) => {
 });
 
 test("register account", async ({ page }) => {
-  await page.route("**/version.json", async (route) => {
-    await route.fulfill({ json: { version: "test" } });
-  });
-
-  await page.route("*/**/api/auth", async (route) => {
-    expect(route.request().method()).toBe("POST");
-    expect(route.request().postDataJSON()).toEqual({
+  await setupCommonMocks(page, {
+    method: "POST",
+    email: "new@jwt.com",
+    password: "test-password",
+    user: {
+      id: 3,
       name: "new pizza diner",
       email: "new@jwt.com",
-      password: "test-password",
-    });
-    await route.fulfill({
-      json: {
-        user: {
-          id: 3,
-          name: "new pizza diner",
-          email: "new@jwt.com",
-          roles: [{ role: "diner" }],
-        },
-        token: "mock-registration-token",
-      },
-    });
+      roles: [{ role: "diner" }],
+    },
+    token: "mock-registration-token",
+    request: { name: "new pizza diner" },
   });
 
   await page.goto("/register");
   await page.getByPlaceholder("Full name").fill("new pizza diner");
-  await page.getByRole("textbox", { name: "Email address" }).fill("new@jwt.com");
+  await page
+    .getByRole("textbox", { name: "Email address" })
+    .fill("new@jwt.com");
   await page.getByRole("textbox", { name: "Password" }).fill("test-password");
   await page.getByRole("button", { name: "Register" }).click();
 
@@ -362,23 +368,17 @@ test("register account", async ({ page }) => {
 });
 
 test("close franchise and store", async ({ page }) => {
-  await page.route("**/version.json", async (route) => {
-    await route.fulfill({ json: { version: "test" } });
-  });
-
-  await page.route("*/**/api/auth", async (route) => {
-    expect(route.request().method()).toBe("PUT");
-    await route.fulfill({
-      json: {
-        user: {
-          id: 1,
-          name: "pizza admin",
-          email: "a@jwt.com",
-          roles: [{ role: "admin" }],
-        },
-        token: "mock-admin-token",
-      },
-    });
+  await setupCommonMocks(page, {
+    method: "PUT",
+    email: "a@jwt.com",
+    password: "admin",
+    user: {
+      id: 1,
+      name: "pizza admin",
+      email: "a@jwt.com",
+      roles: [{ role: "admin" }],
+    },
+    token: "mock-admin-token",
   });
 
   await page.route("http://localhost:3000/api/franchise**", async (route) => {
@@ -436,27 +436,17 @@ test("close franchise and store", async ({ page }) => {
 });
 
 test("diner dashboard", async ({ page }) => {
-  await page.route("**/version.json", async (route) => {
-    await route.fulfill({ json: { version: "test" } });
-  });
-
-  await page.route("*/**/api/auth", async (route) => {
-    expect(route.request().method()).toBe("PUT");
-    expect(route.request().postDataJSON()).toMatchObject({
+  await setupCommonMocks(page, {
+    method: "PUT",
+    email: "d@jwt.com",
+    password: "diner",
+    user: {
+      id: 2,
+      name: "pizza diner",
       email: "d@jwt.com",
-      password: "diner",
-    });
-    await route.fulfill({
-      json: {
-        user: {
-          id: 2,
-          name: "pizza diner",
-          email: "d@jwt.com",
-          roles: [{ role: "diner" }],
-        },
-        token: "mock-diner-token",
-      },
-    });
+      roles: [{ role: "diner" }],
+    },
+    token: "mock-diner-token",
   });
 
   await page.route("http://localhost:3000/api/order", async (route) => {
@@ -510,28 +500,18 @@ test("diner dashboard", async ({ page }) => {
 });
 
 test("logout", async ({ page }) => {
-  await page.route("**/version.json", async (route) => {
-    await route.fulfill({ json: { version: "test" } });
-  });
-
-  await page.route("*/**/api/auth", async (route) => {
-    if (route.request().method() === "PUT") {
-      await route.fulfill({
-        json: {
-          user: {
-            id: 2,
-            name: "pizza diner",
-            email: "d@jwt.com",
-            roles: [{ role: "diner" }],
-          },
-          token: "mock-diner-token",
-        },
-      });
-      return;
-    }
-
-    expect(route.request().method()).toBe("DELETE");
-    await route.fulfill({ json: {} });
+  await setupCommonMocks(page, {
+    method: "PUT",
+    email: "d@jwt.com",
+    password: "diner",
+    user: {
+      id: 2,
+      name: "pizza diner",
+      email: "d@jwt.com",
+      roles: [{ role: "diner" }],
+    },
+    token: "mock-diner-token",
+    allowLogout: true,
   });
 
   await page.goto("/login");
@@ -543,7 +523,7 @@ test("logout", async ({ page }) => {
   await page.getByRole("link", { name: "Logout" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("link", { name: "Logout" })).toHaveCount(0);
-  await expect(page.evaluate(() => localStorage.getItem("token"))).resolves.toBe(
-    null,
-  );
+  await expect(
+    page.evaluate(() => localStorage.getItem("token")),
+  ).resolves.toBe(null);
 });
