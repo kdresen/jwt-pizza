@@ -324,3 +324,39 @@ test("admin dashboard", async ({ page }) => {
   await page.getByRole("button", { name: "Add Franchise" }).click();
   await expect(page).toHaveURL(/\/admin-dashboard\/create-franchise$/);
 });
+
+test("register account", async ({ page }) => {
+  await page.route("**/version.json", async (route) => {
+    await route.fulfill({ json: { version: "test" } });
+  });
+
+  await page.route("*/**/api/auth", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({
+      name: "new pizza diner",
+      email: "new@jwt.com",
+      password: "test-password",
+    });
+    await route.fulfill({
+      json: {
+        user: {
+          id: 3,
+          name: "new pizza diner",
+          email: "new@jwt.com",
+          roles: [{ role: "diner" }],
+        },
+        token: "mock-registration-token",
+      },
+    });
+  });
+
+  await page.goto("/register");
+  await page.getByPlaceholder("Full name").fill("new pizza diner");
+  await page.getByRole("textbox", { name: "Email address" }).fill("new@jwt.com");
+  await page.getByRole("textbox", { name: "Password" }).fill("test-password");
+  await page.getByRole("button", { name: "Register" }).click();
+
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("link", { name: "nd" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Logout" })).toBeVisible();
+});
