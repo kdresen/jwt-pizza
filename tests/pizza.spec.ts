@@ -508,3 +508,42 @@ test("diner dashboard", async ({ page }) => {
   await expect(page.locator("tbody")).toContainText("0.008 ₿");
   await expect(page.locator("tbody")).toContainText("2026-01-15");
 });
+
+test("logout", async ({ page }) => {
+  await page.route("**/version.json", async (route) => {
+    await route.fulfill({ json: { version: "test" } });
+  });
+
+  await page.route("*/**/api/auth", async (route) => {
+    if (route.request().method() === "PUT") {
+      await route.fulfill({
+        json: {
+          user: {
+            id: 2,
+            name: "pizza diner",
+            email: "d@jwt.com",
+            roles: [{ role: "diner" }],
+          },
+          token: "mock-diner-token",
+        },
+      });
+      return;
+    }
+
+    expect(route.request().method()).toBe("DELETE");
+    await route.fulfill({ json: {} });
+  });
+
+  await page.goto("/login");
+  await page.getByRole("textbox", { name: "Email address" }).fill("d@jwt.com");
+  await page.getByRole("textbox", { name: "Password" }).fill("diner");
+  await page.getByRole("button", { name: "Login" }).click();
+  await expect(page.getByRole("link", { name: "Logout" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Logout" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("link", { name: "Logout" })).toHaveCount(0);
+  await expect(page.evaluate(() => localStorage.getItem("token"))).resolves.toBe(
+    null,
+  );
+});
