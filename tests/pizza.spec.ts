@@ -205,3 +205,122 @@ test("franchise dashboard", async ({ page }) => {
   await page.getByRole("button", { name: "Create store" }).click();
   await expect(page).toHaveURL(/\/franchise-dashboard\/create-store$/);
 });
+
+test("admin dashboard", async ({ page }) => {
+  await page.route("**/version.json", async (route) => {
+    await route.fulfill({ json: { version: "test" } });
+  });
+
+  await page.route("*/**/api/auth", async (route) => {
+    expect(route.request().method()).toBe("PUT");
+    expect(route.request().postDataJSON()).toMatchObject({
+      email: "a@jwt.com",
+      password: "admin",
+    });
+    await route.fulfill({
+      json: {
+        user: {
+          id: 1,
+          name: "pizza admin",
+          email: "a@jwt.com",
+          roles: [{ role: "admin" }],
+        },
+        token: "mock-admin-token",
+      },
+    });
+  });
+
+  await page.route("http://localhost:3000/api/franchise**", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    const url = new URL(route.request().url());
+    const pageNumber = url.searchParams.get("page");
+    const nameFilter = url.searchParams.get("name");
+
+    if (pageNumber === "0" && nameFilter === "*") {
+      await route.fulfill({
+        json: {
+          franchises: [
+            {
+              id: "franchise-1",
+              name: "Downtown Pizza",
+              admins: [{ name: "pizza franchisee" }],
+              stores: [
+                {
+                  id: "store-1",
+                  name: "Main Street",
+                  totalRevenue: 12.5,
+                },
+              ],
+            },
+          ],
+          more: true,
+        },
+      });
+      return;
+    }
+
+    if (pageNumber === "1" && nameFilter === "*") {
+      await route.fulfill({
+        json: {
+          franchises: [
+            {
+              id: "franchise-2",
+              name: "Uptown Pizza",
+              admins: [{ name: "another franchisee" }],
+              stores: [
+                {
+                  id: "store-2",
+                  name: "North Street",
+                  totalRevenue: 20,
+                },
+              ],
+            },
+          ],
+          more: false,
+        },
+      });
+      return;
+    }
+
+    expect(pageNumber).toBe("1");
+    expect(nameFilter).toBe("*Downtown*");
+    await route.fulfill({
+      json: {
+        franchises: [
+          {
+            id: "franchise-1",
+            name: "Downtown Pizza",
+            admins: [{ name: "pizza franchisee" }],
+            stores: [],
+          },
+        ],
+        more: false,
+      },
+    });
+  });
+
+  await page.goto("/admin-dashboard/login");
+  await page.getByRole("textbox", { name: "Email address" }).fill("a@jwt.com");
+  await page.getByRole("textbox", { name: "Password" }).fill("admin");
+  await page.getByRole("button", { name: "Login" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Mama Ricci's kitchen", level: 2 }),
+  ).toBeVisible();
+  await expect(page.locator("tbody")).toContainText("Downtown Pizza");
+  await expect(page.locator("tbody")).toContainText("pizza franchisee");
+  await expect(page.locator("tbody")).toContainText("Main Street");
+  await expect(page.locator("tbody")).toContainText("12.5 ₿");
+
+  await page.getByRole("button", { name: "»" }).click();
+  await expect(page.locator("tbody")).toContainText("Uptown Pizza");
+  await expect(page.locator("tbody")).toContainText("North Street");
+
+  await page.getByPlaceholder("Filter franchises").fill("Downtown");
+  await page.getByRole("button", { name: "Submit" }).click();
+  await expect(page.locator("tbody")).toContainText("Downtown Pizza");
+  await expect(page.locator("tbody")).not.toContainText("Uptown Pizza");
+
+  await page.getByRole("button", { name: "Add Franchise" }).click();
+  await expect(page).toHaveURL(/\/admin-dashboard\/create-franchise$/);
+});
