@@ -434,3 +434,77 @@ test("close franchise and store", async ({ page }) => {
   await page.getByRole("button", { name: "Close" }).click();
   await expect(page).toHaveURL(/\/admin-dashboard$/);
 });
+
+test("diner dashboard", async ({ page }) => {
+  await page.route("**/version.json", async (route) => {
+    await route.fulfill({ json: { version: "test" } });
+  });
+
+  await page.route("*/**/api/auth", async (route) => {
+    expect(route.request().method()).toBe("PUT");
+    expect(route.request().postDataJSON()).toMatchObject({
+      email: "d@jwt.com",
+      password: "diner",
+    });
+    await route.fulfill({
+      json: {
+        user: {
+          id: 2,
+          name: "pizza diner",
+          email: "d@jwt.com",
+          roles: [{ role: "diner" }],
+        },
+        token: "mock-diner-token",
+      },
+    });
+  });
+
+  await page.route("http://localhost:3000/api/order", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    await route.fulfill({
+      json: {
+        id: "history-1",
+        dinerId: "2",
+        orders: [
+          {
+            id: "order-42",
+            franchiseId: "franchise-1",
+            storeId: "store-1",
+            date: "2026-01-15T12:00:00.000Z",
+            items: [
+              {
+                menuId: "1",
+                description: "Veggie A",
+                price: 0.004,
+              },
+              {
+                menuId: "2",
+                description: "Pepperoni",
+                price: 0.004,
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
+  await page.goto("/diner-dashboard/login");
+  await page.getByRole("textbox", { name: "Email address" }).fill("d@jwt.com");
+  await page.getByRole("textbox", { name: "Password" }).fill("diner");
+  await page.getByRole("button", { name: "Login" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Your pizza kitchen", level: 2 }),
+  ).toBeVisible();
+  await expect(page.getByText("name:").locator("..")).toContainText(
+    "pizza diner",
+  );
+  await expect(page.getByText("email:").locator("..")).toContainText(
+    "d@jwt.com",
+  );
+  await expect(page.getByText("role:").locator("..")).toContainText("diner");
+  await expect(page.locator("tbody")).toContainText("order-42");
+  await expect(page.locator("tbody")).toContainText("0.008 ₿");
+  await expect(page.locator("tbody")).toContainText("2026-01-15");
+});
