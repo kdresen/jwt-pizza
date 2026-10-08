@@ -360,3 +360,77 @@ test("register account", async ({ page }) => {
   await expect(page.getByRole("link", { name: "nd" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Logout" })).toBeVisible();
 });
+
+test("close franchise and store", async ({ page }) => {
+  await page.route("**/version.json", async (route) => {
+    await route.fulfill({ json: { version: "test" } });
+  });
+
+  await page.route("*/**/api/auth", async (route) => {
+    expect(route.request().method()).toBe("PUT");
+    await route.fulfill({
+      json: {
+        user: {
+          id: 1,
+          name: "pizza admin",
+          email: "a@jwt.com",
+          roles: [{ role: "admin" }],
+        },
+        token: "mock-admin-token",
+      },
+    });
+  });
+
+  await page.route("http://localhost:3000/api/franchise**", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        json: {
+          franchises: [
+            {
+              id: "franchise-1",
+              name: "Downtown Pizza",
+              admins: [{ name: "pizza franchisee" }],
+              stores: [
+                {
+                  id: "store-1",
+                  name: "Main Street",
+                  totalRevenue: 12.5,
+                },
+              ],
+            },
+          ],
+          more: false,
+        },
+      });
+      return;
+    }
+
+    expect(route.request().method()).toBe("DELETE");
+    expect(route.request().url()).toMatch(
+      /\/api\/franchise\/(franchise-1|franchise-1\/store\/store-1)$/,
+    );
+    await route.fulfill({ json: {} });
+  });
+
+  await page.goto("/admin-dashboard/login");
+  await page.getByRole("textbox", { name: "Email address" }).fill("a@jwt.com");
+  await page.getByRole("textbox", { name: "Password" }).fill("admin");
+  await page.getByRole("button", { name: "Login" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Mama Ricci's kitchen", level: 2 }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).nth(0).click();
+  await expect(page.getByRole("main")).toContainText(
+    "close the Downtown Pizza franchise",
+  );
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page).toHaveURL(/\/admin-dashboard$/);
+
+  await page.getByRole("button", { name: "Close" }).nth(1).click();
+  await expect(page.getByRole("main")).toContainText(
+    "Downtown Pizza store Main Street",
+  );
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page).toHaveURL(/\/admin-dashboard$/);
+});
