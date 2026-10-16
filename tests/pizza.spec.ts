@@ -313,6 +313,75 @@ test("admin dashboard", async ({ page }) => {
     });
   });
 
+  let users = [
+    {
+      id: 2,
+      name: "pizza diner",
+      email: "d@jwt.com",
+      roles: [{ role: "diner" }],
+    },
+    {
+      id: 3,
+      name: "pizza franchisee",
+      email: "f@jwt.com",
+      roles: [{ role: "franchisee" }],
+    },
+  ];
+  const testUserIds = new Set([2, 3, 4]);
+  const deletedUserIds = new Set<number>();
+
+  await page.route("http://localhost:3000/api/user**", async (route) => {
+    const method = route.request().method();
+    const url = new URL(route.request().url());
+
+    if (method === "DELETE") {
+      const userId = Number(url.pathname.split("/").pop());
+      expect(testUserIds.has(userId)).toBe(true);
+      deletedUserIds.add(userId);
+      users = users.filter((user) => user.id !== userId);
+      await route.fulfill({ json: { message: "user deleted" } });
+      return;
+    }
+
+    expect(method).toBe("GET");
+    const pageNumber = url.searchParams.get("page");
+    const nameFilter = url.searchParams.get("name");
+
+    if (pageNumber === "1" && nameFilter === "*") {
+      await route.fulfill({
+        json: {
+          users: [
+            {
+              id: 4,
+              name: "pizza admin two",
+              email: "admin2@jwt.com",
+              roles: [{ role: "admin" }],
+            },
+          ],
+          more: false,
+        },
+      });
+      return;
+    }
+
+    if (nameFilter === "*diner*") {
+      await route.fulfill({
+        json: {
+          users: users.filter((user) => user.name.includes("diner")),
+          more: false,
+        },
+      });
+      return;
+    }
+
+    await route.fulfill({
+      json: {
+        users,
+        more: true,
+      },
+    });
+  });
+
   await page.goto("/admin-dashboard/login");
   await page.getByRole("textbox", { name: "Email address" }).fill("a@jwt.com");
   await page.getByRole("textbox", { name: "Password" }).fill("admin");
@@ -321,22 +390,102 @@ test("admin dashboard", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Mama Ricci's kitchen", level: 2 }),
   ).toBeVisible();
-  await expect(page.locator("tbody")).toContainText("Downtown Pizza");
-  await expect(page.locator("tbody")).toContainText("pizza franchisee");
-  await expect(page.locator("tbody")).toContainText("Main Street");
-  await expect(page.locator("tbody")).toContainText("12.5 ₿");
+  const franchiseTable = page
+    .getByRole("heading", { name: "Franchises", level: 3 })
+    .locator("..")
+    .locator("table");
+  const userTable = page
+    .getByRole("heading", { name: "Users", level: 3 })
+    .locator("..")
+    .locator("table");
+  await expect(franchiseTable).toContainText("Downtown Pizza");
+  await expect(franchiseTable).toContainText("pizza franchisee");
+  await expect(franchiseTable).toContainText("Main Street");
+  await expect(franchiseTable).toContainText("12.5 ₿");
+  await expect(
+    page.getByRole("heading", { name: "Users", level: 3 }),
+  ).toBeVisible();
+  await expect(userTable).toContainText("pizza diner");
+  await expect(userTable).toContainText("d@jwt.com");
+  await expect(userTable).toContainText("diner");
 
-  await page.getByRole("button", { name: "»" }).click();
-  await expect(page.locator("tbody")).toContainText("Uptown Pizza");
-  await expect(page.locator("tbody")).toContainText("North Street");
+  await page.getByRole("button", { name: "»" }).nth(0).click();
+  await expect(franchiseTable).toContainText("Uptown Pizza");
+  await expect(franchiseTable).toContainText("North Street");
 
   await page.getByPlaceholder("Filter franchises").fill("Downtown");
-  await page.getByRole("button", { name: "Submit" }).click();
-  await expect(page.locator("tbody")).toContainText("Downtown Pizza");
-  await expect(page.locator("tbody")).not.toContainText("Uptown Pizza");
+  await page
+    .getByPlaceholder("Filter franchises")
+    .locator("..")
+    .getByRole("button", { name: "Submit" })
+    .click();
+  await expect(franchiseTable).toContainText("Downtown Pizza");
+  await expect(franchiseTable).not.toContainText("Uptown Pizza");
+
+  await page.getByPlaceholder("Filter users").fill("diner");
+  await page
+    .getByPlaceholder("Filter users")
+    .locator("..")
+    .getByRole("button", { name: "Submit" })
+    .click();
+  await expect(userTable).toContainText("pizza diner");
+  await expect(userTable).not.toContainText("pizza franchisee");
+
+  await page.getByPlaceholder("Filter users").fill("");
+  await page
+    .getByPlaceholder("Filter users")
+    .locator("..")
+    .getByRole("button", { name: "Submit" })
+    .click();
+  await userTable
+    .getByRole("row", { name: /pizza diner d@jwt\.com diner/ })
+    .getByRole("button", { name: "Delete" })
+    .click();
+  await expect(userTable).not.toContainText("pizza diner");
+
+  for (const userId of testUserIds) {
+    if (!deletedUserIds.has(userId)) {
+      const response = await page.evaluate(async (id) => {
+        const result = await fetch(`http://localhost:3000/api/user/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: "Bearer mock-admin-token" },
+        });
+        return result.ok;
+      }, userId);
+      expect(response).toBe(true);
+    }
+  }
+  expect(deletedUserIds).toEqual(testUserIds);
 
   await page.getByRole("button", { name: "Add Franchise" }).click();
   await expect(page).toHaveURL(/\/admin-dashboard\/create-franchise$/);
+});
+
+test("diner cannot access admin dashboard", async ({ page }) => {
+  await setupCommonMocks(page, {
+    method: "PUT",
+    email: "d@jwt.com",
+    password: "diner",
+    user: {
+      id: 2,
+      name: "pizza diner",
+      email: "d@jwt.com",
+      roles: [{ role: "diner" }],
+    },
+    token: "mock-diner-token",
+  });
+
+  await page.goto("/admin-dashboard/login");
+  await page.getByRole("textbox", { name: "Email address" }).fill("d@jwt.com");
+  await page.getByRole("textbox", { name: "Password" }).fill("diner");
+  await page.getByRole("button", { name: "Login" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Oops", level: 2 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Users", level: 3 }),
+  ).not.toBeVisible();
 });
 
 test("register account", async ({ page }) => {
