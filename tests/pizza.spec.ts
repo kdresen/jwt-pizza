@@ -487,13 +487,9 @@ test("diner dashboard", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Your pizza kitchen", level: 2 }),
   ).toBeVisible();
-  await expect(page.getByText("name:").locator("..")).toContainText(
-    "pizza diner",
-  );
-  await expect(page.getByText("email:").locator("..")).toContainText(
-    "d@jwt.com",
-  );
-  await expect(page.getByText("role:").locator("..")).toContainText("diner");
+  await expect(page.getByText("pizza diner", { exact: true })).toBeVisible();
+  await expect(page.getByText("d@jwt.com", { exact: true })).toBeVisible();
+  await expect(page.getByText("diner", { exact: true })).toBeVisible();
   await expect(page.locator("tbody")).toContainText("order-42");
   await expect(page.locator("tbody")).toContainText("0.008 ₿");
   await expect(page.locator("tbody")).toContainText("2026-01-15");
