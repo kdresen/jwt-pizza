@@ -48,10 +48,16 @@ jobs:
           color=$(echo "$coverage < 80" | bc | awk '{if ($1) print "red"; else print "green"}')
           curl -s -X POST "https://pizza-factory.cs329.click/api/badge/${{ secrets.NET_ID }}/jwtpizzacoverage?label=Coverage&value=$coverage%25&color=$color" -H "authorization: bearer ${{ secrets.FACTORY_API_KEY }}"
   deploy:
+    needs: build
     permissions:
       id-token: write
       contents: read
     runs-on: ubuntu-latest
+    env:
+      version: ${{ needs.build.outputs.version }}
+    environment:
+      name: production
+      url: https://pizza.kallai-byu-cs.click
     steps:
       - name: Create OIDC token to AWS
         uses: aws-actions/configure-aws-credentials@v6.3.0
