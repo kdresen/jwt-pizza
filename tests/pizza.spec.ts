@@ -197,7 +197,7 @@ test("franchise dashboard", async ({ page }) => {
     token: "mock-franchisee-token",
   });
 
-  await page.route("http://localhost:3000/api/franchise/2", async (route) => {
+  await page.route("**/api/franchise/2", async (route) => {
     expect(route.request().method()).toBe("GET");
     await route.fulfill({
       json: [
@@ -244,7 +244,7 @@ test("admin dashboard", async ({ page }) => {
     token: "mock-admin-token",
   });
 
-  await page.route("http://localhost:3000/api/franchise**", async (route) => {
+  await page.route("**/api/franchise**", async (route) => {
     expect(route.request().method()).toBe("GET");
     const url = new URL(route.request().url());
     const pageNumber = url.searchParams.get("page");
@@ -330,7 +330,7 @@ test("admin dashboard", async ({ page }) => {
   const testUserIds = new Set([2, 3, 4]);
   const deletedUserIds = new Set<number>();
 
-  await page.route("http://localhost:3000/api/user**", async (route) => {
+  await page.route("**/api/user**", async (route) => {
     const method = route.request().method();
     const url = new URL(route.request().url());
 
@@ -443,15 +443,22 @@ test("admin dashboard", async ({ page }) => {
     .click();
   await expect(userTable).not.toContainText("pizza diner");
 
+  const apiUrl = "https://pizza-service.kallai-byu-cs.click";
+
   for (const userId of testUserIds) {
     if (!deletedUserIds.has(userId)) {
-      const response = await page.evaluate(async (id) => {
-        const result = await fetch(`http://localhost:3000/api/user/${id}`, {
-          method: "DELETE",
-          headers: { Authorization: "Bearer mock-admin-token" },
-        });
-        return result.ok;
-      }, userId);
+      const response = await page.evaluate(
+        async ({ apiUrl, id }) => {
+          const result = await fetch(`${apiUrl}/api/user/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: "Bearer mock-admin-token" },
+          });
+
+          return result.ok;
+        },
+        { apiUrl, id: userId },
+      );
+
       expect(response).toBe(true);
     }
   }
@@ -530,7 +537,7 @@ test("close franchise and store", async ({ page }) => {
     token: "mock-admin-token",
   });
 
-  await page.route("http://localhost:3000/api/franchise**", async (route) => {
+  await page.route("**/api/franchise**", async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({
         json: {
@@ -598,7 +605,7 @@ test("diner dashboard", async ({ page }) => {
     token: "mock-diner-token",
   });
 
-  await page.route("http://localhost:3000/api/order", async (route) => {
+  await page.route("**/api/order", async (route) => {
     expect(route.request().method()).toBe("GET");
     await route.fulfill({
       json: {
